@@ -1,12 +1,13 @@
-import { useMDXComponents as getComponents } from 'nextra-theme-blog'
+import { useMDXComponents as getThemeComponents } from 'nextra-theme-blog'
 
 export function useMDXComponents(components) {
-  const nextraComponents = getComponents(components)
+  const themeComponents = getThemeComponents()
   
   return {
-    ...nextraComponents,
+    ...themeComponents,
+    ...components,
     wrapper: ({ children, metadata, ...props }) => {
-      const Wrapper = nextraComponents.wrapper
+      const Wrapper = themeComponents.wrapper
       
       // Check if we're on the landing page using metadata
       const isHomePage = metadata?.filePath === 'app/page.mdx'

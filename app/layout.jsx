@@ -9,12 +9,15 @@ export const metadata = {
 }
 
 export default async function RootLayout({ children }) {
+  const pageMap = await getPageMap()
+  console.log('pageMap', pageMap)
+
   return (
     <html lang="en" suppressHydrationWarning>
       <Head  />
       <body>
         <Layout>
-          <Navbar pageMap={await getPageMap()}>
+          <Navbar pageMap={pageMap}>
             <ThemeSwitch />
           </Navbar>
 
