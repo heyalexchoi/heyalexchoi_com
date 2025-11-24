@@ -1,0 +1,12 @@
+/*
+I increased font size from 16px to 20px. this made font-sized based spacing look weird in space between title and top, so changed padding top to 40px.
+*/
+.x\:prose {
+    font-size: 20px;
+    line-height: 1.7;
+  }
+
+article.x\:container {
+    padding-top: 40px;
+}
+

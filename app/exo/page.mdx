@@ -1,10 +1,155 @@
 ---
-title: 'Exo'
-date: '2025-11-13'
-description: 'An experiment in AI Agent scaffolding'
+title: 'Exo: Can Scaffolding Scale Test-Time Compute To Close the Model Gap?'
+date: '2025-11-24'
+description: 'Can Scaffolding Scale Test-Time Compute Close the Model Gap? Testing whether structured reasoning architectures can close the performance gap between frontier and economy models cost-effectively.'
 ---
 
 ![grok exo](/images/exo/exo-grok-2.png)
-TODO
 
+**Testing whether structured reasoning architectures can close the performance gap between frontier and economy models cost-effectively.**
 
+---
+
+### TL;DR
+
+Chain-of-thought shows test-time compute scaling improves LLM performance. Frontier models now score 80%+ on GAIA; economy models plateau around 55%. The gap presumably reflects better internal reasoning from higher parameter counts capturing more training data. But can external structure compensate? If a scaffold can guide a weaker model through the right reasoning steps — decomposed, domain-specialized, optimized from experience — can it close that gap cost-effectively? I built Exo to find out. It decomposes ReAct into modular components (reflection → domain routing → specialized action) operating on a shared trajectory, with an adapted GEPA optimizer for trajectory-level self-improvement.
+Result: modest architectural gains (+0.7%), but automated optimization hurt performance. I didn't close the gap in this experiment. Not surprising in retrospect — GAIA spans a wide range of tasks, including web browsing, general computer use, and multimodal capability, and is riddled with edge cases and gotchas. Not the easiest benchmark to crack with context-based optimization. Below: what I built, what I learned, and what I'd try next.
+
+---
+
+### What I Built
+
+**Modular ReAct Architecture**
+
+Decomposed monolithic ReAct into explicit modules operating on a shared trajectory:
+- **Reflection** → **Domain Router** → **Domain Specialist (Action)** → **Tool Execution** → **(Repeat)**
+
+Five domain specialists: Browser, Wikipedia, ArXiv, Code, Miscellaneous
+
+Key design choice: Unlike subagent architectures where specialists maintain separate contexts, Exo's modules operate on a single continuous trajectory. Each step routes to the appropriate specialist, but context accumulates without fragmentation. (This addresses context discontinuity problems I observed in earlier subagent-as-tools experiments.)
+
+**Trajectory-Level GEPA Adaptation**
+
+[GEPA](https://arxiv.org/abs/2507.19457) provides a useful framework for optimizing LLM prompts, but out-of-the-box is suitable for "single-shot" LLM applications only. Agents need trajectory-level analysis — you can't attribute a final failure to a specific step without examining the full chain. I adapted GEPA to:
+- Analyze compressed full trajectories to identify key failure point for each trajectory
+- Generate improvement feedback to address the failure and score estimated impact for the improvement, for each trajectory
+- Use aggregated estimated impact to select the module to target
+- Synthesize relevant feedback across trajectories to improve instructions for the target module
+
+**Infrastructure**
+- Containerized parallel execution (1 browser context + code sandbox per task)
+- MLflow experiment tracking
+- Multimodal tool wrappers (decouple vision from reasoning model)
+- Custom tools: Wikipedia API, ArXiv search, browser-to-markdown extraction
+
+---
+
+### The Hypothesis
+
+**Claim:** Modular decomposition + automated trajectory-level optimization should outperform monolithic ReAct.
+
+**Reasoning:**
+- Monolithic prompts for diverse tasks get bloated; attention degrades
+- Long trajectories with noisy observations stretch context; distilled structured outputs should help
+- Manual agent optimization doesn't scale; automated optimization should compound
+- Domain specialization should improve per-domain performance without subagent fragmentation
+
+---
+
+### What I Tried First
+
+Before settling on this architecture, I experimented with subagents-as-tools - giving a top-level agent tools to spawn specialist agents for browsing, coding, etc. Problem: the interface between the agent and subagent became a point of context loss, dependent on the ability of both agents to communicate flawlessly. Additionally, in complex tasks, such as those found in GAIA, the task often requires ***discovery***, further complicating the transmission of context, since what information each agent needs to pass to the other is *not* obvious.
+
+This motivated the "single trajectory, multiple specialists" design — preserve continuity while still enabling domain-specific prompting.
+
+---
+
+### Results
+
+**Test set performance (Grok 4 Fast, a top performing economy model, at $0.20/$0.50 per million tokens):**
+
+| Variant | Accuracy | Error Rate |
+|---------|----------|------------|
+| Vanilla ReAct baseline | 54.8% | 1.7% |
+| Exo (unoptimized) | 55.5% | 5.6% |
+| Exo (GEPA-optimized, distilled) | 52.5% | — |
+
+**What the numbers show:**
+- Modular architecture: +0.7% accuracy, but +3.9% higher error rate from unresolved scaffold issues
+- GEPA optimization: hurt performance by 3 points despite validation safeguards
+- Error analysis: failures concentrated in addressable edge cases (response length limits, code environment context passing) — suggests potential 3.7% accuracy gain over baseline from unoptimized modular architecture
+
+**Additional signal (DeepSeek V3 0324, 50-task validation sample):**
+- Vanilla: 30% accuracy, Exo unoptimized: 32%
+- Modest gains persist across model tiers
+
+---
+
+### What I Learned
+
+**1. Trajectory-level credit assignment is genuinely hard**
+
+When an agent fails at step 15, which earlier step was the root cause? GEPA's per-invocation analysis isn't designed for this. My trajectory adapter helps, but the signal is still noisy—early subtle errors cascade in ways that are hard to attribute automatically.
+
+**2. Small validation sets overfit even with rotation**
+
+Used 5-task validation sets, rotated randomly to prevent memorization. Still overfitted. The optimizer would find instructions that happened to work on recent validation samples but degraded generalization. Likely need larger validation sets or synthetic augmentation.
+
+**3. Instruction bloat is real**
+
+GEPA-generated instructions grew to 1-2k tokens per module. Longer isn't better—models struggle to adhere to sprawling instructions. Need explicit length constraints or iterative distillation.
+
+**4. Scaffolding overhead can exceed benefits on diverse benchmarks**
+
+Modular architecture adds complexity (more failure points, longer traces). On a benchmark as diverse as GAIA, the per-domain volume isn't high enough for specialization to clearly pay off. Suspicion: this approach would show stronger gains on domain-concentrated tasks.
+
+**5. GAIA has issues**
+
+Encountered outdated questions, ambiguous gotchas, cases where I agreed with the agent's "wrong" answer. Also evidence of training contamination in frontier models (large delta between validation and test scores). Its utility as a benchmark is degrading.
+
+---
+
+### What I'd Do Differently
+
+**Scope:** Single domain first (e.g., just web browsing or just code), validate the approach works, then expand. GAIA's diversity made iteration cycles expensive and signal noisy.
+
+**Iteration size:** Smaller increments. Add just the reflection module, measure. Then add routing, measure. I made too many architectural bets simultaneously.
+
+**GEPA fixes I'd try:**
+- Accumulate all trajectory analyses across runs (not just current batch) for instruction proposals
+- Explicit instruction length budget
+- Larger validation set (20+) or synthetic task augmentation
+- Memory-based updates instead of instruction rewriting (inject learned heuristics rather than bloating base prompt)
+
+---
+
+### Technical Appendix
+
+*[Link to detailed page or expandable sections]*
+
+- Full architecture diagram and module signatures
+- GEPA adapter implementation details
+- Structured output schemas (reflection fields, trajectory compression)
+- Infrastructure setup (Docker, browser isolation, code sandbox)
+- Complete results tables and error breakdowns
+- MLflow experiment logs
+
+---
+
+## Notes on Tone
+
+A few things I tried to do in this draft:
+
+1. **Lead with what you built**, not the problem. Hiring managers want to see you can ship.
+
+2. **"What I Tried First" earns credibility.** Shows the architecture wasn't arbitrary—it was an informed response to observed problems.
+
+3. **Results section is direct and honest.** No spin, no projections, just "here's what happened." The error analysis adds nuance without overclaiming.
+
+4. **"What I Learned" is the centerpiece.** This is what differentiates you from someone who just followed a tutorial. These are hard-won insights.
+
+5. **"What I'd Do Differently" shows growth mindset** without being self-flagellating. It's forward-looking.
+
+---
+
+Want me to flesh out any section, or should we look at specific wording for the TL;DR and headlines?
