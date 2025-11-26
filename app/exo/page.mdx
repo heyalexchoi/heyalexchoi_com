@@ -19,8 +19,7 @@ Result: modest architectural gains (+0.7%), but automated optimization hurt perf
 
 ### What I Built
 
-**Modular ReAct Architecture**
-
+**Modular ReAct Architecture (Exo)**
 Decomposed monolithic ReAct into explicit modules operating on a shared trajectory:
 - **Reflection** → **Domain Router** → **Domain Specialist (Action)** → **Tool Execution** → **(Repeat)**
 
@@ -64,9 +63,22 @@ This motivated the "single trajectory, multiple specialists" design — preserve
 
 ---
 
-### Results
+### The Experiment
+I used the GAIA validation set to create a new train-validation split and ran my modified dspy-GEPA optimizer on my Exo modular ReAct agent for thousands of rollouts. **Important context**: the GEPA algorithm validates updates - all updates are created from train set trajectory feedback, but must improve validation set scores for the update to be accepted. The GEPA author recommends using the smallest validation set that accurately represents the problem domain to reduce compute and training time. I used a small validation set - 5 items - but resampled the 5 items from the held out validation set regularly - to balance training efficiency with overfitting risk.
 
-**Test set performance (Grok 4 Fast, a top performing economy model, at $0.20/$0.50 per million tokens):**
+#### Curriculum
+GAIA splits tasks into 3 difficulty levels, and I tagged each task with the tool group it required (eg: web browsing, wikipedia, calculator, etc). From this, I built a curriculum, starting with the easiest tasks that required the most commonly required tool group: web browsing. After validation scores started to plateau, I moved onto the next tool group, progressively expanding to all tool groups, then progressed the difficulty.
+
+#### Apparent Progress
+Over tens of runs and thousands of rollouts, I saw varying results, but enough validation score improvement and strong performance to keep going.
+
+#### Test
+I tested 2 versions of my agent, Exo, and 1 baseline (Vanilla ReAct), on the full 300 task GAIA test set. The baseline, Vanilla ReAct, is DSPy's implementation of ReAct, with the Exo tool set. The two versions of my agent were (1) an unoptimized version, to test the effect of the modular architecture without GEPA optimization and (2) a distilled version of the GEPA-optimized agent. The GEPA-optimized version is distilled because on preliminary validation set evaluations, the non-distilled version performed worse than both the unoptimized version and the baseline. After reviewing the GEPA-generated instructions and finding them problematic, I attempted to salvage the instructions by having Claude 4.5 remove redundant and incoherent information, and then I deleted obviously wrong guidance. The distillation partly invalidates that variant's results but re-running the optimization was out of scope for this experiment, and an optimistic preview of potential performance seemed more informative than verifying its underperformance.
+
+---
+
+### Results
+**Test set performance (using Grok 4 Fast, a top performing economy model, at $0.20/$0.50 per million tokens):**
 
 | Variant | Accuracy | Error Rate |
 |---------|----------|------------|
@@ -74,38 +86,41 @@ This motivated the "single trajectory, multiple specialists" design — preserve
 | Exo (unoptimized) | 55.5% | 5.6% |
 | Exo (GEPA-optimized, distilled) | 52.5% | — |
 
-**What the numbers show:**
+#### What the numbers show:
 - Modular architecture: +0.7% accuracy, but +3.9% higher error rate from unresolved scaffold issues
 - GEPA optimization: hurt performance by 3 points despite validation safeguards
-- Error analysis: failures concentrated in addressable edge cases (response length limits, code environment context passing) — suggests potential 3.7% accuracy gain over baseline from unoptimized modular architecture
+- Errors concentrated in addressable edge case handling — suggesting potential accuracy gain of up to 3.7% over baseline from unoptimized modular architecture
 
-**Additional signal (DeepSeek V3 0324, 50-task validation sample):**
-- Vanilla: 30% accuracy, Exo unoptimized: 32%
-- Modest gains persist across model tiers
+#### GEPA-generated instructions
+GEPA generated very long instructions: up to 2.2k tokens in one module, with detailed guidance relating to specific tasks in some cases, and incorrect guidance in others. 
+
+#### Secondary Results
+I wanted to see if decomposed ReAct could have greater impact on older models, before increased focus on 
+**Scores on 50-task validation set sample, using DeepSeek V3 0324:**
+- Vanilla ReAct: 30% accuracy
+- Exo unoptimized: 32%
+- Modest gains persist across models
+
 
 ---
 
-### What I Learned
+### Reflections
 
-**1. Trajectory-level credit assignment is genuinely hard**
+#### GEPA Optimization Failed
+The poor performance was surprising since GEPA validates instructions - performance on a validation set that the optimizer never sees must be improved before any updates are accepted. 
 
-When an agent fails at step 15, which earlier step was the root cause? GEPA's per-invocation analysis isn't designed for this. My trajectory adapter helps, but the signal is still noisy—early subtle errors cascade in ways that are hard to attribute automatically.
+#### The core challenge: GAIA is hard
+GAIA has a very diverse set of tasks. Narrower task distributions help (hence domain specialists), but the fundamental challenge remains.
 
-**2. Small validation sets overfit even with rotation**
-
-Used 5-task validation sets, rotated randomly to prevent memorization. Still overfitted. The optimizer would find instructions that happened to work on recent validation samples but degraded generalization. Likely need larger validation sets or synthetic augmentation.
-
-**3. Instruction bloat is real**
-
-GEPA-generated instructions grew to 1-2k tokens per module. Longer isn't better—models struggle to adhere to sprawling instructions. Need explicit length constraints or iterative distillation.
-
-**4. Scaffolding overhead can exceed benefits on diverse benchmarks**
-
-Modular architecture adds complexity (more failure points, longer traces). On a benchmark as diverse as GAIA, the per-domain volume isn't high enough for specialization to clearly pay off. Suspicion: this approach would show stronger gains on domain-concentrated tasks.
-
-**5. GAIA has issues**
-
-Encountered outdated questions, ambiguous gotchas, cases where I agreed with the agent's "wrong" answer. Also evidence of training contamination in frontier models (large delta between validation and test scores). Its utility as a benchmark is degrading.
+#### synthesis without gradients
+Weight-based learning uses gradient descent to synthesize large numbers of examples into generalizable parameter updates. Context-based optimization has to do this explicitly: integrate trajectory feedback into context, balancing detail with limited attention. My domain specialist modules are one way of addressing this, since they narrow the scope of each module's responsibilities. Another potential way could be a memory mechanism that retrieves relevant information from past experiences (I would consider trying something like [ReasoningBank](https://arxiv.org/abs/2509.25140) if I continued this project). 
+#### On GEPA adaptation
+I anticipated single-task analysis could produce over-specific guidance. Addressed pragmatically: instruction proposer synthesized across trajectories, added generalization guidelines, preserved GEPA's core plumbing to minimize scope. Reasonable tradeoff, but insufficient—still overfitted. Next iteration: rip out more core machinery, implement broader historical search across all feedback for a module version before proposing updates.
+Validation rotation also wasn't enough safeguard. Started with 10-task sets, cut to 5 with rotation and automatic resampling per GEPA's guidance. Still overfitted. On GAIA's diversity, would need 20+ or synthetic augmentation.
+#### On optimizer context
+The analysis and instruction-proposing modules need architectural context—how modules interact, what flows where, which failures are addressable at which layer. Obvious in retrospect; took about a day to adjust once I noticed. Would front-load this more aggressively.
+#### On benchmark choice
+GAIA's diversity meant sparse signal per domain. Would validate on a vertical slice first—just web browsing or just Wikipedia—before expanding. Denser feedback, cleaner iteration.
 
 ---
 
@@ -126,7 +141,7 @@ Encountered outdated questions, ambiguous gotchas, cases where I agreed with the
 ### Technical Appendix
 
 *[Link to detailed page or expandable sections]*
-
+![basic architecture](/images/exo/basic-architecture.png)
 - Full architecture diagram and module signatures
 - GEPA adapter implementation details
 - Structured output schemas (reflection fields, trajectory compression)
@@ -134,22 +149,3 @@ Encountered outdated questions, ambiguous gotchas, cases where I agreed with the
 - Complete results tables and error breakdowns
 - MLflow experiment logs
 
----
-
-## Notes on Tone
-
-A few things I tried to do in this draft:
-
-1. **Lead with what you built**, not the problem. Hiring managers want to see you can ship.
-
-2. **"What I Tried First" earns credibility.** Shows the architecture wasn't arbitrary—it was an informed response to observed problems.
-
-3. **Results section is direct and honest.** No spin, no projections, just "here's what happened." The error analysis adds nuance without overclaiming.
-
-4. **"What I Learned" is the centerpiece.** This is what differentiates you from someone who just followed a tutorial. These are hard-won insights.
-
-5. **"What I'd Do Differently" shows growth mindset** without being self-flagellating. It's forward-looking.
-
----
-
-Want me to flesh out any section, or should we look at specific wording for the TL;DR and headlines?
