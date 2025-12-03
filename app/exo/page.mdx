@@ -12,8 +12,8 @@ description: "Testing context-based optimization for agent continual learning. P
 
 ### TL;DR
 
-Continual learning — agents that improve from experience — keeps surfacing as a key capability gap. Weight updates are prohibitive at scale; context-based learning is the lightweight alternative. I built Exo to test whether context-based optimization could close the gap between economy and frontier models on GAIA.
-The architecture: modular ReAct (reflection → domain routing → specialized action) with an adapted GEPA optimizer for trajectory-level self-improvement. Along the way, Grok 4 Fast + my tooling achieved Pareto-optimal cost-performance — higher accuracy than o4-mini + HAL at 4x lower cost.
+Continual learning — agents that improve from experience — keeps surfacing as a key capability gap. Weight updates are prohibitive at scale; context-based learning is the lightweight alternative. I built Exo to test whether context-based optimization could close the gap between economy and frontier models on [GAIA](https://huggingface.co/gaia-benchmark).
+The architecture: modular ReAct (reflection → domain routing → specialized action) with an adapted [GEPA](https://arxiv.org/abs/2507.19457) optimizer for trajectory-level self-improvement. Along the way, [Grok 4 Fast](https://x.ai/news/grok-4-fast/) + my tooling achieved Pareto-optimal cost-performance — higher accuracy than [o4-mini + HAL](https://hal.cs.princeton.edu/gaia) at 4x lower cost.
 The optimization results were humbling. Validation scores improved steadily over thousands of rollouts. Then I ran the full 300-task test set: the optimized agent scored 3 points worse than baseline. The optimizer had been overfitting the whole time.
 Core problem: coverage. Context-based optimization needs training signal that covers your test distribution. GAIA spans web browsing, computer use, multimodal tasks, endless edge cases. Because this is a side project, I tried to hack together a training set by splitting GAIA's validation set. I suspect my data was too sparse and jagged to optimize on properly. Modular architecture showed modest gains (+0.7%); the optimization framework needs a narrower target or much more data.
 
@@ -41,7 +41,7 @@ Key design choice: Unlike subagent architectures where specialists maintain sepa
 
 Agent benchmarks like GAIA require reliable, efficient tooling. Raw browser HTML is noisy; API rate limits and failures need handling; code execution needs isolation. I built tooling to address these:
 
-- **Multi-threaded concurrency in containerized deployment:** Tasks are run in parallel, each with its own thread, agent, browser, and code executor. I chose multi-thread concurrency for maximum compatibility and reuse with DSPy's Evaluator and Optimizer. The application is Docker containerized for easy, portable, and reliable deployment.
+- **Multi-threaded concurrency in containerized deployment:** Tasks are run in parallel, each with its own thread, agent, browser, and code executor. I chose multi-thread concurrency for maximum compatibility and reuse with [DSPy's](https://dspy.ai/) Evaluator and Optimizer. The application is Docker containerized for easy, portable, and reliable deployment.
 - **Interactive browser use with markdown content extraction:** Integrated [browser-use](https://github.com/browser-use/browser-use) tools for use in my agent, with per-thread browser isolation to work with DSPy's multithread Evaluator. Added webpage content extraction with conversion to clean markdown. Reduces token count vs raw HTML while preserving structure the model needs.
 - **Wikipedia API wrapper:** Direct structured access to content and revisions via the MediaWiki API. Faster and more reliable than browser-based Wikipedia access; returns clean text without navigation chrome.
 - **ArXiv search:** API-based paper search and abstract retrieval. Avoids browser overhead for a common GAIA task type.
@@ -171,7 +171,7 @@ In retrospect, this v1 was scoped too broadly for the constraints (one person, s
 
 **Modular architecture.** Consistent (if modest) gains across model tiers: +0.7% on test with Grok 4 Fast, +2% with DeepSeek V3. Domain specialists operating on shared trajectory avoid the context fragmentation of subagent approaches. Small but directionally correct.
 
-**Infrastructure.** Docker container running LangGraph to orchestrate DSPy modules, with multi-threaded eval and MLflow tracking. Tested and reusable for future agent work.
+**Infrastructure.** Docker container running [LangGraph](https://www.langchain.com/langgraph) to orchestrate DSPy modules, with multi-threaded eval and MLflow tracking. Tested and reusable for future agent work.
 
 **Optimization framework.** The GEPA adaptation didn't produce better agents in this experiment, but the methodology — trajectory-level analysis, module-targeted feedback, validation-gated updates — is promising.
 
