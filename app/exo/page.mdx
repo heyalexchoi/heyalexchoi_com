@@ -12,10 +12,10 @@ description: "Can scaffolded reasoning close the gap between economy and frontie
 
 ### TL;DR
 
-Chain-of-thought research shows that test-time compute scaling improves LLM performance. Frontier models now score 80%+ on GAIA; economy models plateau around 55%. The gap presumably reflects better internal reasoning from higher parameter counts capturing more training data. But can external structure compensate? If a scaffold can guide a weaker model through the right reasoning steps — decomposed, domain-specialized, optimized from experience — can it close that gap cost-effectively? I built Exo to find out. It decomposes ReAct into modular components (reflection → domain routing → specialized action) operating on a shared trajectory, with an adapted GEPA optimizer for trajectory-level self-improvement.
-Result: modest architectural gains (+0.7%), but automated optimization hurt performance. I didn't close the gap in this experiment. Not surprising in retrospect — GAIA spans a wide range of tasks, including web browsing, general computer use, and multimodal capability, and is riddled with edge cases and gotchas. Not the easiest benchmark to crack with context-based optimization.
-
-Continual learning — agents that improve from experience — has been referenced as key to AGI (see [Final Thoughts](#final-thoughts)). I think we can start building this into scaffolds now; Exo is my first crack at it. Below: what I built, what I learned, and what I'd try next.
+Continual learning — agents that improve from experience — keeps surfacing as a key capability gap. Weight updates are prohibitive at scale; context-based learning is the lightweight alternative. I built Exo to test whether context-based optimization could close the gap between economy and frontier models on GAIA.
+The architecture: modular ReAct (reflection → domain routing → specialized action) with an adapted GEPA optimizer for trajectory-level self-improvement. Along the way, Grok 4 Fast + my tooling achieved Pareto-optimal cost-performance — higher accuracy than o4-mini + HAL at 4x lower cost.
+The optimization results were humbling. Validation scores improved steadily over thousands of rollouts. Then I ran the full 300-task test set: the optimized agent scored 3 points worse than baseline. The optimizer had been overfitting the whole time.
+Core problem: coverage. Context-based optimization needs training signal that covers your test distribution. GAIA spans web browsing, computer use, multimodal tasks, endless edge cases. Because this is a side project, I tried to hack together a training set by splitting GAIA's validation set. I suspect my data was too sparse and jagged to optimize on properly. Modular architecture showed modest gains (+0.7%); the optimization framework needs a narrower target or much more data.
 
 ---
 
@@ -195,14 +195,14 @@ In retrospect, this v1 was scoped too broadly for the constraints (one person, s
 
 ### Final Thoughts
 
-Continual learning keeps surfacing in the AGI conversation. [Sutton](https://www.dwarkesh.com/p/richard-sutton) argues LLMs are a dead end without it; [Ilya](https://www.dwarkesh.com/p/ilya-sutskever-2) frames it as the next research frontier after scaling. Sutton's take strikes me as overly pessimistic. As an engineer, I don't see a fundamental blocker — just problems to work on.
+Continual learning keeps surfacing as a key capability gap — [Sutton](https://www.dwarkesh.com/p/richard-sutton) argues LLMs are a dead end without it, [Ilya](https://www.dwarkesh.com/p/ilya-sutskever-2) frames it as the next frontier. Sutton's take strikes me as overly pessimistic. As an engineer, I don't see a fundamental blocker — just problems to work on. Context-based learning is the obvious lightweight approach to try: weight updates are prohibitive at scale, and we already know in-context learning works.
 
 My bet: context-based learning has a place in the toolbox alongside SFT and RL. Maybe as a bridge between weight updates — an agent learns in-context until it can complete a task, then successful trajectories feed back into finetuning.
 
 Exo implements a form of continual learning — the agent learns from past trajectories, in context, to improve on future tasks. 
+My results don't prove context-based optimization works or doesn't — they just show GAIA was the wrong target at side-project scale. 
 
-I didn't nail the results I wanted, but I built a base for future iteration, tested ideas, and have hypotheses for what to try next.
-
+Six months ago I'd never built an agent. I started from smol agents and Open Deep Research, tried Atom of Thought, experimented with sub-agent-as-tool architectures, and landed on shared-trajectory modular ReAct. I didn't nail the results I wanted, but I built infrastructure that works, tested ideas, and have hypotheses for what to try next.
 
 ---
 
