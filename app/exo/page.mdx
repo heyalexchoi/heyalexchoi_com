@@ -17,6 +17,8 @@ The architecture: modular ReAct (reflection → domain routing → specialized a
 The optimization results were humbling. Validation scores improved steadily over thousands of rollouts. Then I ran the full 300-task test set: the optimized agent scored 3 points worse than baseline. The optimizer had been overfitting the whole time.
 Core problem: coverage. Context-based optimization needs training signal that covers your test distribution. GAIA spans web browsing, computer use, multimodal tasks, endless edge cases. Because this is a side project, I tried to hack together a training set by splitting GAIA's validation set. I suspect my data was too sparse and jagged to optimize on properly. Modular architecture showed modest gains (+0.7%); the optimization framework needs a narrower target or much more data.
 
+Code [here](https://github.com/heyalexchoi/exo-public)
+
 ---
 
 ### What I Built
